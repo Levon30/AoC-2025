@@ -1,17 +1,6 @@
-test_input = '''
-
-
-
-'''.strip()
-test_solution = None, None
-solution = None, None
-
-with open('input.txt') as f:
-    puzzle_input = f.read().strip()
-
-
 def solve(text: str, part_a: bool) -> int:
     pass
+
 
 def run(title: str, filename: str, part_a: bool, expected: int | None) -> None:
     with open(filename, 'r') as f:
@@ -22,6 +11,7 @@ def run(title: str, filename: str, part_a: bool, expected: int | None) -> None:
         assert got == expected, f'{title}; Got: {got}, Expected: {expected}'
         return
     print(f'{title}: {got}')
+
 
 def main():
     import time
