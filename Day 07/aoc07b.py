@@ -1,0 +1,43 @@
+
+def main():
+    with open('input.txt') as f:
+        text = f.read()
+        assert '^^' not in text
+        assert '\n^' not in text
+        assert '^\n' not in text
+
+    test_input = '''.......S.......
+...............
+.......^.......
+...............
+......^.^......
+...............
+.....^.^.^.....
+...............
+....^.^...^....
+...............
+...^.^...^.^...
+...............
+..^...^.....^..
+...............
+.^.^.^.^.^...^.
+...............'''
+
+    # text = test_input
+    lines = text.split('\n')
+
+    beams = {i: 0 for i in range(len(lines[0]))}
+
+    beams[lines[0].find('S')] = 1
+    for line in lines[1:]:
+        splitters = {i for i, c in enumerate(line) if c == '^'}
+        for splitter in splitters:
+            beams[splitter-1] += beams[splitter]
+            beams[splitter+1] += beams[splitter]
+            beams[splitter] = 0
+
+    print(sum(beams.values()))
+
+
+if __name__ == '__main__':
+    main()
