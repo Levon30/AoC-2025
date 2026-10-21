@@ -1,27 +1,27 @@
 from __future__ import annotations
+
 from typing import Optional
 
-
-class State:
-    def __init__(self, states: list[bool]):
-        self.states = states
-
-    def press(self, button: frozenset[int]) -> State:
-        for i in button:
-            self.states[i] = not self.states[i]
-        return self
-
-    def copy(self) -> State:
-        return State(self.states.copy())
+RECURSIVE_CACHE = True
 
 
 class Problem:
-    def __init__(self, states: State, buttons: list[frozenset[int]], joltages: list[int]):
+    def __init__(self, states: set[int], buttons: list[frozenset[int]], joltages: list[int]):
         self.states = states
         self.buttons = buttons
         self.joltages = joltages
 
-        self.mod_2_cache: dict[tuple[bool, ...], list[set[int]]] = {}
+        self.mod_2_cache: dict[frozenset[int], list[set[int]]] = {}
+
+    def press_states(self, button: frozenset[int]) -> None:
+        self.states.symmetric_difference_update(button)
+
+    def press_joltages(self, button: frozenset[int]) -> None:
+        for i in button:
+            self.joltages[i] -= 1
+
+    def set_states(self) -> None:
+        self.states = {i for i, j in enumerate(self.joltages) if j % 2 == 1}
 
     def copy(self) -> Problem:
         obj = Problem(self.states.copy(), self.buttons.copy(), self.joltages.copy())
@@ -31,13 +31,13 @@ class Problem:
     @classmethod
     def from_line(cls, line: str) -> Problem:
         a, *b, c = line.split(' ')
-        states = [state == '.' for state in a[1:-1]]
+        states = {i for i, c in enumerate(a[1:-1]) if c == '#'}
         buttons = []
         for button in b:
             set_button = {int(i) for i in button[1:-1].split(',')}
             buttons.append(frozenset(set_button))
         joltages = [int(j) for j in c[1:-1].split(',')]
-        return cls(State(states), buttons, joltages)
+        return cls(states, buttons, joltages)
 
     def solve(self, part_a: bool) -> int:
         if part_a:
@@ -51,7 +51,10 @@ class Problem:
         if disabled_buttons is None:
             disabled_buttons = set()
 
-        key = tuple(self.states.states)
+        key = frozenset(self.states)
+        if self.states == {1, 2, 4, 5, 8}:
+            pass
+
         if key not in self.mod_2_cache:
             # At first, my idea was to pass disabled_buttons to
             # the method that finds solutions mod 2, but that somewhat
@@ -59,7 +62,14 @@ class Problem:
             # to disregard disabled_buttons when calculating solutions
             # and caching them. Instead we just filter the output of
             # this method (which is a minimal optimisation)
-            self.mod_2_cache[key] = self._find_all_solutions_mod_2(set(), set())
+            new_sols = self._find_all_solutions_mod_2(set(), set())
+            for sol in new_sols:
+                if not self._validate_solution(set(key), sol):
+                    print('Incorrect Cache')
+                    print('Buttons:', [set(b) for b in self.buttons])
+                    print('\t', key, sol)
+                    pass
+            self.mod_2_cache[key] = new_sols
 
         sols = self.mod_2_cache[key]
         return [sol for sol in sols if all(i not in sol for i in disabled_buttons)]
@@ -68,23 +78,39 @@ class Problem:
                                   pressed: set[int],
                                   not_pressed: set[int]) -> list[set[int]]:
         buttons = []
-        for i, b in enumerate(self.buttons):
-            if i in pressed or i in not_pressed:
+        for j, b in enumerate(self.buttons):
+            if j in pressed or j in not_pressed:
                 continue
-            buttons.append((i, b))
+            buttons.append((j, b))
+
+        # If there is a finished state with only one button that
+        # contains this index, we never wish to press that button.
+        # We iterate over all remaining buttons until no further
+        # optimisation is possible.
+        finished = [i for i in range(len(self.joltages)) if i not in self.states]
+        while True:
+            progress = False
+            for i in finished:
+                containing = {(j, b) for j, b in buttons if i in b}
+                if len(containing) == 1:
+                    progress = True
+                    j, b = containing.pop()
+                    buttons.remove((j, b))
+                    not_pressed.add(j)
+            if not progress:
+                break
 
         if not buttons:
-            if all(self.states.states):
+            if not self.states:
                 return [pressed]
             return []
 
-        unfinished = [i for i, s in enumerate(self.states.states) if not s]
-
-        # We now create a list of button ids containing
-        # each of the unfinished indices
+        # We now create a list of button ids containing the unfinished
+        # machines. If for some _un_finished index, there is only
+        # one button left, we have to press this button.
 
         buttons_containing: dict[int, set[int]] = {}
-        for i in unfinished:
+        for i in self.states:
             buttons_containing[i] = {j for j, b in buttons if i in b}
 
             # If any unfinished index does not appear on a free
@@ -97,28 +123,45 @@ class Problem:
         for i, i_buttons in buttons_containing.items():
             if len(i_buttons) > 1:
                 continue
-            button_id = i_buttons.pop()
-            i_button = self.buttons[button_id]
-            self.states.press(i_button)
-            pressed.add(button_id)
+            j = i_buttons.pop()
+            i_button = self.buttons[j]
+            self.press_states(i_button)
+            pressed.add(j)
 
             return self._find_all_solutions_mod_2(pressed, not_pressed)
 
         # If no presses were forced we just try all remaining options.
-        i, button = buttons.pop()
+        j, button = buttons.pop()
 
         # Now we copy the current problem and press the chosen button.
         new_problem = self.copy()
-        new_problem.states.press(button)
+        new_problem.press_states(button)
+        key = frozenset(new_problem.states)
+        if key in self.mod_2_cache and RECURSIVE_CACHE:
+            out = []
+            for sol in self.mod_2_cache[key]:
+                if sol.intersection(not_pressed):
+                    continue
+                if not pressed.issubset(sol):
+                    continue
+                out.append(sol.symmetric_difference({j}))
+
+            return out
+
         new_pressed = pressed.copy()
-        new_pressed.add(i)
+        new_pressed.add(j)
         solutions_a = new_problem._find_all_solutions_mod_2(new_pressed, not_pressed.copy())
 
+        if j == 9:
+            pass
+
         # Also try not pressing the button, return both solutions lists.
-        not_pressed.add(i)
-        return solutions_a + self._find_all_solutions_mod_2(pressed, not_pressed)
+        not_pressed.add(j)
+        solutions_b = self._find_all_solutions_mod_2(pressed, not_pressed)
+        return solutions_a + solutions_b
 
     def solve_a(self) -> int:
+
         solutions = self.find_all_solutions_mod_2()
         return min([len(solution) for solution in solutions])
 
@@ -143,8 +186,6 @@ class Problem:
         if any(j < 0 for j in self.joltages):
             return None
 
-        self.states = State([j % 2 == 0 for j in self.joltages])
-
         # We disable all buttons that cannot be legally pressed.
         # This would not be detected mod 2.
         disabled_buttons = set()
@@ -155,6 +196,7 @@ class Problem:
                 if i in button:
                     disabled_buttons.add(b_i)
 
+        self.set_states()
         sols_mod_2 = self.find_all_solutions_mod_2(disabled_buttons)
 
         for sol in sols_mod_2:
@@ -165,9 +207,8 @@ class Problem:
             new_problem = self.copy()
             for i in sol:
                 button = self.buttons[i]
-                for j in button:
-                    new_problem.joltages[j] -= 1
-            assert all(j%2 == 0 for j in new_problem.joltages)
+                new_problem.press_joltages(button)
+            assert all(j % 2 == 0 for j in new_problem.joltages)
             new_problem.joltages = [j // 2 for j in new_problem.joltages]
 
             # We simulate what the best solution would mean after
@@ -182,11 +223,28 @@ class Problem:
 
         return best_solution
 
+    def _validate_solution(self, states: set[int], sol: set[int]) -> bool:
+        states = states.copy()
+        for i in sol:
+            button = self.buttons[i]
+            states.symmetric_difference_update(button)
+        return not states
 
 def solve(text: str, part_a: bool) -> int:
     problems = [Problem.from_line(line) for line in text.split('\n')]
-    return sum(p.solve(part_a) for p in problems)
+    total = 0
+    for problem in problems:
+        presses = problem.solve(part_a)
+        # print(presses)
+        total += presses
+    return total
+    # return sum(p.solve(part_a) for p in problems)
 
+
+def main2():
+    with open('test_input.txt') as f:
+        text = f.read()
+    print(solve(text, True))
 
 def run(title: str, filename: str, part_a: bool, expected: int | None) -> None:
     with open(filename, 'r') as f:
